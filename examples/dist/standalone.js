@@ -201,6 +201,7 @@ var Option = _react2['default'].createClass({
 	displayName: 'Option',
 
 	propTypes: {
+		addLabelText: _react2['default'].PropTypes.string, // text to display with value while creating new option
 		children: _react2['default'].PropTypes.node,
 		className: _react2['default'].PropTypes.string, // className (based on mouse position)
 		instancePrefix: _react2['default'].PropTypes.string.isRequired, // unique prefix for the ids (used for aria)
@@ -211,8 +212,9 @@ var Option = _react2['default'].createClass({
 		onSelect: _react2['default'].PropTypes.func, // method to handle click on option element
 		onUnfocus: _react2['default'].PropTypes.func, // method to handle mouseLeave on option element
 		option: _react2['default'].PropTypes.object.isRequired, // object that is base for that option
-		optionIndex: _react2['default'].PropTypes.number },
-	// index of the option, used to generate unique ids for aria
+		optionIndex: _react2['default'].PropTypes.number // index of the option, used to generate unique ids for aria
+	},
+
 	blockEvent: function blockEvent(event) {
 		event.preventDefault();
 		event.stopPropagation();
@@ -270,7 +272,6 @@ var Option = _react2['default'].createClass({
 		var optionIndex = _props.optionIndex;
 
 		var className = (0, _classnames2['default'])(this.props.className, option.className);
-
 		return option.disabled ? _react2['default'].createElement(
 			'div',
 			{ className: className,
@@ -290,7 +291,7 @@ var Option = _react2['default'].createClass({
 				onTouchEnd: this.handleTouchEnd,
 				id: instancePrefix + '-option-' + optionIndex,
 				title: option.title },
-			this.props.children
+			option.create ? this.props.addLabelText.replace('{label}', option.label) : this.props.children
 		);
 	}
 });
@@ -361,6 +362,7 @@ var Select = _react2['default'].createClass({
 	displayName: 'Select',
 
 	propTypes: {
+		addItemOnKeyCode: _react2['default'].PropTypes.number, // The key code number that should trigger adding a tag if multi and allowCreate are enabled
 		addLabelText: _react2['default'].PropTypes.string, // placeholder displayed when you want to add a label on a multi-value input
 		allowCreate: _react2['default'].PropTypes.bool, // whether to allow creation of new entries
 		'aria-label': _react2['default'].PropTypes.string, // Aria label (for assistive tech)
@@ -412,6 +414,7 @@ var Select = _react2['default'].createClass({
 		optionComponent: _react2['default'].PropTypes.func, // option component to render in dropdown
 		optionRenderer: _react2['default'].PropTypes.func, // optionRenderer: function (option) {}
 		options: _react2['default'].PropTypes.array, // array of options
+		pageSize: _react2['default'].PropTypes.number, // number of entries to page when using page up/down keys
 		placeholder: stringOrNode, // field placeholder, displayed when there's no value
 		required: _react2['default'].PropTypes.bool, // applies HTML5 required attribute when needed
 		resetValue: _react2['default'].PropTypes.any, // value to use when you clear the control
@@ -433,6 +436,7 @@ var Select = _react2['default'].createClass({
 	getDefaultProps: function getDefaultProps() {
 		return {
 			addLabelText: 'Add "{label}"?',
+			addItemOnKeyCode: null,
 			autosize: true,
 			allowCreate: false,
 			backspaceRemoves: true,
@@ -458,6 +462,7 @@ var Select = _react2['default'].createClass({
 			onBlurResetsInput: true,
 			openAfterFocus: false,
 			optionComponent: _Option2['default'],
+			pageSize: 5,
 			placeholder: 'Select...',
 			required: false,
 			resetValue: null,
@@ -544,6 +549,7 @@ var Select = _react2['default'].createClass({
 		}
 		if (prevProps.disabled !== this.props.disabled) {
 			this.setState({ isFocused: false }); // eslint-disable-line react/no-did-update-set-state
+			this.closeMenu();
 		}
 	},
 
@@ -761,17 +767,30 @@ var Select = _react2['default'].createClass({
 				// down
 				this.focusNextOption();
 				break;
-			// case 188: // ,
-			// 	if (this.props.allowCreate && this.props.multi) {
-			// 		event.preventDefault();
-			// 		event.stopPropagation();
-			// 		this.selectFocusedOption();
-			// 	} else {
-			// 		return;
-			// 	}
-			// break;
+			case 33:
+				// page up
+				this.focusPageUpOption();
+				break;
+			case 34:
+				// page down
+				this.focusPageDownOption();
+				break;
+			case 35:
+				// end key
+				this.focusEndOption();
+				break;
+			case 36:
+				// home key
+				this.focusStartOption();
 			default:
-				return;
+				if (this.props.allowCreate && this.props.multi && event.keyCode === this.props.addItemOnKeyCode) {
+					event.preventDefault();
+					event.stopPropagation();
+					this.selectFocusedOption();
+				} else {
+					return;
+				}
+				break;
 		}
 		event.preventDefault();
 	},
@@ -822,7 +841,13 @@ var Select = _react2['default'].createClass({
 
 		if (!options) return;
 		for (var i = 0; i < options.length; i++) {
-			if (options[i][valueKey] === value) return options[i];
+			if (options[i][valueKey] === value) {
+				return options[i];
+			}
+		}
+
+		if (this.props.allowCreate && value !== '') {
+			return this.createNewOption(value);
 		}
 	},
 
@@ -876,9 +901,15 @@ var Select = _react2['default'].createClass({
 	},
 
 	removeValue: function removeValue(value) {
+		var _this2 = this;
+
 		var valueArray = this.getValueArray(this.props.value);
 		this.setValue(valueArray.filter(function (i) {
-			return i !== value;
+			if (i.create) {
+				return i[_this2.props.valueKey] !== value[_this2.props.valueKey] && i[_this2.props.labelKey] !== value[_this2.props.labelKey];
+			} else {
+				return i !== value;
+			}
 		}));
 		this.focus();
 	},
@@ -912,6 +943,22 @@ var Select = _react2['default'].createClass({
 		this.focusAdjacentOption('previous');
 	},
 
+	focusPageUpOption: function focusPageUpOption() {
+		this.focusAdjacentOption('page_up');
+	},
+
+	focusPageDownOption: function focusPageDownOption() {
+		this.focusAdjacentOption('page_down');
+	},
+
+	focusStartOption: function focusStartOption() {
+		this.focusAdjacentOption('start');
+	},
+
+	focusEndOption: function focusEndOption() {
+		this.focusAdjacentOption('end');
+	},
+
 	focusAdjacentOption: function focusAdjacentOption(dir) {
 		var options = this._visibleOptions.map(function (option, index) {
 			return { option: option, index: index };
@@ -943,6 +990,24 @@ var Select = _react2['default'].createClass({
 			} else {
 				focusedIndex = options.length - 1;
 			}
+		} else if (dir === 'start') {
+			focusedIndex = 0;
+		} else if (dir === 'end') {
+			focusedIndex = options.length - 1;
+		} else if (dir === 'page_up') {
+			var potentialIndex = focusedIndex - this.props.pageSize;
+			if (potentialIndex < 0) {
+				focusedIndex = 0;
+			} else {
+				focusedIndex = potentialIndex;
+			}
+		} else if (dir === 'page_down') {
+			var potentialIndex = focusedIndex + this.props.pageSize;
+			if (potentialIndex > options.length - 1) {
+				focusedIndex = options.length - 1;
+			} else {
+				focusedIndex = potentialIndex;
+			}
 		}
 
 		if (focusedIndex === -1) {
@@ -964,6 +1029,21 @@ var Select = _react2['default'].createClass({
 		}
 	},
 
+	createNewOption: function createNewOption(value) {
+		var newOption = {};
+
+		if (this.props.newOptionCreator) {
+			newOption = this.props.newOptionCreator(value);
+		} else {
+			newOption[this.props.valueKey] = value;
+			newOption[this.props.labelKey] = value;
+		}
+
+		newOption.create = true;
+
+		return newOption;
+	},
+
 	renderLoading: function renderLoading() {
 		if (!this.props.isLoading) return;
 		return _react2['default'].createElement(
@@ -974,7 +1054,7 @@ var Select = _react2['default'].createClass({
 	},
 
 	renderValue: function renderValue(valueArray, isOpen) {
-		var _this2 = this;
+		var _this3 = this;
 
 		var renderLabel = this.props.valueRenderer || this.getOptionLabel;
 		var ValueComponent = this.props.valueComponent;
@@ -991,12 +1071,12 @@ var Select = _react2['default'].createClass({
 				return _react2['default'].createElement(
 					ValueComponent,
 					{
-						id: _this2._instancePrefix + '-value-' + i,
-						instancePrefix: _this2._instancePrefix,
-						disabled: _this2.props.disabled || value.clearableValue === false,
-						key: 'value-' + i + '-' + value[_this2.props.valueKey],
+						id: _this3._instancePrefix + '-value-' + i,
+						instancePrefix: _this3._instancePrefix,
+						disabled: _this3.props.disabled || value.clearableValue === false,
+						key: 'value-' + i + '-' + value[_this3.props.valueKey],
 						onClick: onClick,
-						onRemove: _this2.removeValue,
+						onRemove: _this3.removeValue,
 						value: value
 					},
 					renderLabel(value),
@@ -1102,12 +1182,14 @@ var Select = _react2['default'].createClass({
 	},
 
 	filterOptions: function filterOptions(excludeOptions) {
-		var _this3 = this;
+		var _this4 = this;
 
 		var filterValue = this.state.inputValue;
+		var originalFilterValue = filterValue;
 		var options = this.props.options || [];
+		var filteredOptions = [];
 		if (typeof this.props.filterOptions === 'function') {
-			return this.props.filterOptions.call(this, options, filterValue, excludeOptions);
+			filteredOptions = this.props.filterOptions.call(this, options, filterValue, excludeOptions);
 		} else if (this.props.filterOptions) {
 			if (this.props.ignoreAccents) {
 				filterValue = (0, _utilsStripDiacritics2['default'])(filterValue);
@@ -1116,31 +1198,44 @@ var Select = _react2['default'].createClass({
 				filterValue = filterValue.toLowerCase();
 			}
 			if (excludeOptions) excludeOptions = excludeOptions.map(function (i) {
-				return i[_this3.props.valueKey];
+				return i[_this4.props.valueKey];
 			});
-			return options.filter(function (option) {
-				if (excludeOptions && excludeOptions.indexOf(option[_this3.props.valueKey]) > -1) return false;
-				if (_this3.props.filterOption) return _this3.props.filterOption.call(_this3, option, filterValue);
+			filteredOptions = options.filter(function (option) {
+				if (excludeOptions && excludeOptions.indexOf(option[_this4.props.valueKey]) > -1) return false;
+				if (_this4.props.filterOption) return _this4.props.filterOption.call(_this4, option, filterValue);
 				if (!filterValue) return true;
-				var valueTest = String(option[_this3.props.valueKey]);
-				var labelTest = String(option[_this3.props.labelKey]);
-				if (_this3.props.ignoreAccents) {
-					if (_this3.props.matchProp !== 'label') valueTest = (0, _utilsStripDiacritics2['default'])(valueTest);
-					if (_this3.props.matchProp !== 'value') labelTest = (0, _utilsStripDiacritics2['default'])(labelTest);
+				var valueTest = String(option[_this4.props.valueKey]);
+				var labelTest = String(option[_this4.props.labelKey]);
+				if (_this4.props.ignoreAccents) {
+					if (_this4.props.matchProp !== 'label') valueTest = (0, _utilsStripDiacritics2['default'])(valueTest);
+					if (_this4.props.matchProp !== 'value') labelTest = (0, _utilsStripDiacritics2['default'])(labelTest);
 				}
-				if (_this3.props.ignoreCase) {
-					if (_this3.props.matchProp !== 'label') valueTest = valueTest.toLowerCase();
-					if (_this3.props.matchProp !== 'value') labelTest = labelTest.toLowerCase();
+				if (_this4.props.ignoreCase) {
+					if (_this4.props.matchProp !== 'label') valueTest = valueTest.toLowerCase();
+					if (_this4.props.matchProp !== 'value') labelTest = labelTest.toLowerCase();
 				}
-				return _this3.props.matchPos === 'start' ? _this3.props.matchProp !== 'label' && valueTest.substr(0, filterValue.length) === filterValue || _this3.props.matchProp !== 'value' && labelTest.substr(0, filterValue.length) === filterValue : _this3.props.matchProp !== 'label' && valueTest.indexOf(filterValue) >= 0 || _this3.props.matchProp !== 'value' && labelTest.indexOf(filterValue) >= 0;
+				return _this4.props.matchPos === 'start' ? _this4.props.matchProp !== 'label' && valueTest.substr(0, filterValue.length) === filterValue || _this4.props.matchProp !== 'value' && labelTest.substr(0, filterValue.length) === filterValue : _this4.props.matchProp !== 'label' && valueTest.indexOf(filterValue) >= 0 || _this4.props.matchProp !== 'value' && labelTest.indexOf(filterValue) >= 0;
 			});
 		} else {
-			return options;
+			filteredOptions = options;
 		}
+		if (this.props.allowCreate && filterValue) {
+			var addNewOption = true;
+			//NOTE: only add the "Add" option if none of the options are an exact match
+			filteredOptions.map(function (option) {
+				if (String(option.label).toLowerCase() === filterValue || String(option.value).toLowerCase() === filterValue) {
+					addNewOption = false;
+				}
+			});
+			if (addNewOption) {
+				filteredOptions.unshift(this.createNewOption(originalFilterValue));
+			}
+		}
+		return filteredOptions;
 	},
 
 	renderMenu: function renderMenu(options, valueArray, focusedOption) {
-		var _this4 = this;
+		var _this5 = this;
 
 		if (options && options.length) {
 			if (this.props.menuRenderer) {
@@ -1154,15 +1249,15 @@ var Select = _react2['default'].createClass({
 				});
 			} else {
 				var _ret = (function () {
-					var Option = _this4.props.optionComponent;
-					var renderLabel = _this4.props.optionRenderer || _this4.getOptionLabel;
+					var Option = _this5.props.optionComponent;
+					var renderLabel = _this5.props.optionRenderer || _this5.getOptionLabel;
 
 					return {
 						v: options.map(function (option, i) {
 							var isSelected = valueArray && valueArray.indexOf(option) > -1;
 							var isFocused = option === focusedOption;
 							var optionRef = isFocused ? 'focused' : null;
-							var optionClass = (0, _classnames2['default'])(_this4.props.optionClassName, {
+							var optionClass = (0, _classnames2['default'])(_this5.props.optionClassName, {
 								'Select-option': true,
 								'is-selected': isSelected,
 								'is-focused': isFocused,
@@ -1172,15 +1267,16 @@ var Select = _react2['default'].createClass({
 							return _react2['default'].createElement(
 								Option,
 								{
-									instancePrefix: _this4._instancePrefix,
+									instancePrefix: _this5._instancePrefix,
 									optionIndex: i,
 									className: optionClass,
 									isDisabled: option.disabled,
 									isFocused: isFocused,
-									key: 'option-' + i + '-' + option[_this4.props.valueKey],
-									onSelect: _this4.selectValue,
-									onFocus: _this4.focusOption,
+									key: 'option-' + i + '-' + option[_this5.props.valueKey],
+									onSelect: _this5.selectValue,
+									onFocus: _this5.focusOption,
 									option: option,
+									addLabelText: _this5.props.addLabelText,
 									isSelected: isSelected,
 									ref: optionRef
 								},
@@ -1204,12 +1300,12 @@ var Select = _react2['default'].createClass({
 	},
 
 	renderHiddenField: function renderHiddenField(valueArray) {
-		var _this5 = this;
+		var _this6 = this;
 
 		if (!this.props.name) return;
 		if (this.props.joinValues) {
 			var value = valueArray.map(function (i) {
-				return stringifyValue(i[_this5.props.valueKey]);
+				return stringifyValue(i[_this6.props.valueKey]);
 			}).join(this.props.delimiter);
 			return _react2['default'].createElement('input', {
 				type: 'hidden',
@@ -1222,9 +1318,9 @@ var Select = _react2['default'].createClass({
 			return _react2['default'].createElement('input', { key: 'hidden.' + index,
 				type: 'hidden',
 				ref: 'value' + index,
-				name: _this5.props.name,
-				value: stringifyValue(item[_this5.props.valueKey]),
-				disabled: _this5.props.disabled });
+				name: _this6.props.name,
+				value: stringifyValue(item[_this6.props.valueKey]),
+				disabled: _this6.props.disabled });
 		});
 	},
 
@@ -1233,7 +1329,7 @@ var Select = _react2['default'].createClass({
 		if (!options.length) return null;
 
 		var focusedOption = this.state.focusedOption || selectedOption;
-		if (focusedOption) {
+		if (focusedOption && !focusedOption.disabled) {
 			var focusedOptionIndex = options.indexOf(focusedOption);
 			if (focusedOptionIndex !== -1) {
 				return focusedOptionIndex;
@@ -1292,7 +1388,7 @@ var Select = _react2['default'].createClass({
 		});
 
 		var removeMessage = null;
-		if (this.props.multi && !this.props.disabled && valueArray.length && !this.state.inputValue && this.state.isFocused) {
+		if (this.props.multi && !this.props.disabled && valueArray.length && !this.state.inputValue && this.state.isFocused && this.props.backspaceRemoves) {
 			removeMessage = _react2['default'].createElement(
 				'span',
 				{ id: this._instancePrefix + '-backspace-remove-message', className: 'Select-aria-only', 'aria-live': 'assertive' },
